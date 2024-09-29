@@ -1,0 +1,1573 @@
+---
+title: 'The Sleep Cypher: Deciphering The Hidden Language of Disrupted Sleep'
+author: "Pritam Naskar"
+date: "2024-05-27"
+output: html_notebook
+runtime: shiny
+---
+```{r}
+# load necessary packages:
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(corrplot)
+library(caTools)
+
+
+
+library(broom)
+library(reshape2)
+library(knitr)
+library(kableExtra)
+library(htmlTable)
+library(gridExtra)
+
+library(car)
+library(stats)
+library(patchwork)
+```
+
+```{r}
+# load the dataset:
+my_data <- read.csv(file.choose())
+View(my_data)
+summary(my_data)
+head(my_data)
+
+#################################
+library(kableExtra)
+
+# Assuming my_data is your dataset
+head_data <- head(my_data,10)
+
+# Highlighting column names with a different color
+kable(head_data, col.names = colnames(head_data), "html") %>%
+  kable_styling()
+```
+
+```{r}
+# data count using dplyr:
+my_data %>%
+  count(Gender) # count gender
+
+my_data %>%
+  count(Occupation) # count occupation
+
+my_data %>%
+  count(Quality.of.Sleep) # count quality of sleep
+
+my_data %>%
+  count(Sleep.Duration) # count sleep duration
+
+my_data %>%
+  count(BMI.Category) # count bmi
+
+my_data %>%
+  count(Stress.Level) # count stress level
+
+my_data %>%
+  count(Blood.Pressure) # count bp
+
+my_data %>%
+  count(Heart.Rate) # count heart rate
+
+my_data %>%
+  count(Daily.Steps) # count daily steps
+
+my_data %>%
+  count(Sleep.Disorder) # count sleep disorder
+
+```
+
+```{r}
+# According to my need:
+my_data$Occupation<-gsub("Sales Representative","Salesperson",my_data$Occupation)
+
+my_data$BMI.Category<-gsub("Normal Weight","Normal",my_data$BMI.Category)
+```
+
+```{r}
+#Exploratory Data Analysis:
+
+###################################
+# Occupation vs Sleep Disorder:
+# Plotting on Occupation: Ratio
+# Define a custom color palette with 10 colors
+my_colors <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00", 
+               "#FFFF33", "#A65628", "#F781BF", "#999999", "#66C2A5")
+
+ggplot(my_data, aes(x = Occupation, fill = Occupation)) +
+  geom_bar(width = 0.8, position = "identity", color = "black") +
+  labs(y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1)) +  # Adjust angle and size for better readability
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -0.5, color = "black", size = 3) +# Include count labels directly on top of each bar
+  scale_fill_manual(values = my_colors)+ # Use custom defined color palette
+  theme(
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth  = 1)  # Add border for each section
+  )
+```
+
+```{r}
+#Manipulation:
+#######################################
+
+#_______________________# Reduced occupation_________________________ 
+# Count the occurrences of each occupation
+occupation_counts <- table(my_data$Occupation)
+
+# Specify the number of top occupations to keep
+top_n_occupations <- 7  # For example, keep the top 7 occupations
+
+# Identify the top occupations
+top_occupations <- names(sort(occupation_counts, decreasing = TRUE))[1:top_n_occupations]
+
+# Filter the data to keep only the rows with the top occupations
+my_data_filtered <- my_data %>%
+  filter(Occupation %in% top_occupations)
+
+# Plotting
+ggplot(my_data_filtered, aes(x = Occupation, fill = Occupation)) +
+  geom_bar(width = 0.8, position = "identity", color = "black") +
+  labs(y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1)) +  
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -0.5, color = "black", size = 3) +
+  scale_fill_manual(values = my_colors)  + # Use a predefined color palette
+  theme(
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth  = 1)  # Add border for each section
+  )
+
+
+
+## now my project use my_data_filtered instead of my_data
+my_data<-my_data_filtered
+
+#################################
+
+# systolic and diastolic split in bp column:
+my_data <- my_data %>%
+  mutate(s0 = strsplit(Blood.Pressure, "/")) %>%
+  rowwise() %>%
+  mutate(Systolic = as.numeric(s0[[1]][1]),
+         Diastolic = as.numeric(s0[[1]][2])) %>%
+  select(-s0)
+
+
+my_data <- my_data %>%
+  mutate(Systolic = as.numeric(str_split(Blood.Pressure, "/")[[1]][1]),
+         Diastolic = as.numeric(str_split(Blood.Pressure, "/")[[1]][2]))
+
+#my_data <- my_data[, -which(names(my_data) == "Blood.Pressure")]
+
+# Define the categorize_blood_pressure function
+categorize_blood_pressure <- function(bp_string) {
+  bp_values <- strsplit(bp_string, "/")[[1]]
+  systolic <- as.integer(bp_values[1])
+  diastolic <- as.integer(bp_values[2])
+  
+  if (systolic < 120 && diastolic < 80) {
+    return("Normal")  # Normal Blood Pressure
+  } else if (120 <= systolic && systolic <= 129 && diastolic < 80) {
+    return("Elevated")  # Elevated Blood Pressure
+  } else if ((130 <= systolic && systolic <= 139) || (80 <= diastolic && diastolic <= 89)) {
+    return("Stage 1 Hypertension")  # Stage 1 Hypertension
+  } else if (systolic >= 140 || diastolic >= 90) {
+    return("Stage 2 Hypertension")  # Stage 2 Hypertension
+  } else {
+    return("Undefined")  # Undefined
+  }
+}
+
+# Assuming your dataset is named 'data' and it has a column named 'Blood.Pressure'
+my_data <- my_data %>%
+  mutate(s0 = strsplit(Blood.Pressure, "/")) %>%
+  rowwise() %>%
+  mutate(Systolic = as.numeric(s0[[1]][1]),
+         Diastolic = as.numeric(s0[[1]][2])) %>%
+  select(-s0) %>%
+  mutate(Systolic = as.numeric(strsplit(Blood.Pressure, "/")[[1]][1]),
+         Diastolic = as.numeric(strsplit(Blood.Pressure, "/")[[1]][2])) %>%
+  mutate(Bp.Category = sapply(Blood.Pressure, categorize_blood_pressure))  %>%
+  select(-Blood.Pressure)
+
+
+# Group by Blood Pressure and sleep disorder and then count occurrences
+bp_sleep_summary <- my_data %>%
+  group_by(Bp.Category, Sleep.Disorder) %>%
+  count() %>%
+  pivot_wider(names_from = Sleep.Disorder, values_from = n, names_prefix = "count_")
+
+# Print the summary as a table
+kable(bp_sleep_summary, format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+#################################
+```
+
+```{r}
+# Plotting
+ggplot(my_data_filtered, aes(x = Occupation, fill = Occupation)) +
+  geom_bar(width = 0.8, position = "identity", color = "black") +
+  labs(y = "Count") +labs(title = "Occupation Distribution ", x = "Occupation", y = "Count")+
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1)) +  
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -0.5, color = "black", size = 3) +
+  scale_fill_manual(values = my_colors)  + 
+  theme(
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth  = 1)  
+  ) 
+```
+
+```{r}
+## now my project use my_data_filtered instead of my_data
+my_data<-my_data_filtered
+
+View(my_data)
+```
+
+```{r}
+## plotting on occupation: on gender ratio:
+
+ggplot(my_data, aes(x = Occupation, fill = Gender)) +
+  geom_bar(width = 0.8, position = "dodge", color = "black") + 
+  labs(y = "Count") +labs(title = "Occupation Distribution by  Gender", x = "Occupation", y = "Count")+
+  geom_text(aes(label = after_stat(count), fill = Gender), stat = "count", position = position_dodge(width = 0.8), vjust = -0.5, color = "black", size = 3) + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1)) +  
+  scale_fill_manual(values = c("#FF6F61", "#70C1B3")) +  
+  theme(strip.placement = "outside", panel.border = element_rect(color = "black", fill = NA, linewidth  = 1)) +
+  theme(
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth  = 1)
+  ) # Add border for each section
+  # Place facet labels outside
+## For engineer,male and female ratio is near to 1.
+
+## Data as bar:
+ggplot(my_data, aes(x = Occupation, fill = Gender)) +
+  geom_bar(width = 0.95, position = "stack", color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count), group = Gender), 
+            position = position_stack(vjust = 0.5), size = 3, color = "black") +  # Adjust position and color
+  labs(title = "Occupation Distribution by Sleep Disorder and Gender", x = "Occupation", y = "Count") +
+  facet_wrap(vars(Sleep.Disorder)) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "red", size = 14, face = "bold.italic"),
+    axis.text.x = element_text(size = 8, angle = 90),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(color = "orange", size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth  = 1)
+  )
+# most of the nurses are dealing with sleep apnea.
+# most of the engineers are not dealing with any sleep disorder.
+
+##_________Results___________
+# insomnia:
+#___teacher(f),salesperson(m)____
+# none:
+#___accountant,engineer(f),doctor,engineer,lawyer(m)____
+# sleep apnea:
+#___nurse(f)____
+
+# Group by Occupation and sleep disorder and then count occurrences
+occupation_sleep_summary <- my_data %>%
+  group_by(Occupation, Sleep.Disorder) %>%
+  count() %>%
+  pivot_wider(names_from = Sleep.Disorder, values_from = n, names_prefix = "count_")
+
+# Print the summary as a table
+kable(occupation_sleep_summary, format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+
+#################################
+## Quality of sleep count:
+sleep_summary <- my_data %>%
+  group_by(Quality.of.Sleep, Sleep.Disorder) %>%
+  count() %>%
+  pivot_wider(names_from = Sleep.Disorder, values_from = n, names_prefix = "count_")
+
+# Print the summary as a table
+kable(sleep_summary, format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+###################################
+##Stress Level count:
+stress_sleep_summary <- my_data %>%
+  group_by(Stress.Level, Sleep.Disorder) %>%
+  count() %>%
+  pivot_wider(names_from = Sleep.Disorder, values_from = n, names_prefix = "count_")
+
+# Print the summary as a table
+kable(stress_sleep_summary, format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+
+
+#################################
+
+# Q1: Gender vs Sleep Disorder:
+## plotting on gender: ratio:
+ggplot(my_data, aes(x = Gender, fill = Gender)) +
+  geom_bar(position = "dodge", color = "black", width = 0.6,alpha=0.8) +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = 1.5) +
+  labs(y = "Count")+theme(
+    text = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth  = 1) 
+  )+labs(title = "Gender count: ")
+# As gender ratio is near about 1, we can check sleep disorder for gender and it 
+# will valid.
+
+## Data as bar:
+#_______________________#Gender wise______________________
+# Define a brighter color palette
+my_colors <- c("#FF6F61", "#FFB347","#70C1B3")
+
+# Plotting
+ggplot(my_data, aes(x = Gender, fill = Sleep.Disorder)) +
+  geom_bar(position = "dodge", color = "black", width = 0.6) +
+  labs(title = "Gender vs. Sleep Disorder", x = "Gender", y = "Count", fill = "Sleep Disorder") +
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.6), vjust = 1, color = "black") +
+  scale_fill_manual(values = my_colors) +
+  theme(
+    text = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth  = 1) 
+  )
+
+
+## for pie chart:
+
+# Define a brighter color palette
+my_colors <- c("#FF6F61", "#FFB347","#70C1B3")
+
+# Calculate counts for each category
+counts <- table(my_data$Sleep.Disorder)
+counts_df <- data.frame(Sleep.Disorder = names(counts), count = as.numeric(counts))
+
+# Plotting
+ggplot(counts_df, aes(x = "", y = count, fill = Sleep.Disorder)) +
+  geom_bar(width = 1, color = "black", stat = "identity") +
+  geom_text(aes(label = count), position = position_stack(vjust = 0.5), size = 4) +
+  labs(title = "Sleep Disorder Distribution", fill = "Sleep Disorder") +
+  scale_fill_manual(values = my_colors) +
+  coord_polar(theta = "y") +
+  theme_void() +
+  theme(
+    plot.title = element_text(color = "#993333", size = 24, face = "bold"),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+  )
+
+# according to data, there are more males in normal and more females in sleep
+# disorder.
+
+# Group by Occupation and Gender and then count occurrences
+occupation_gender_summary <- my_data %>%
+  group_by(Occupation, Gender) %>%
+  count() %>%
+  pivot_wider(names_from = Gender, values_from = n, names_prefix = "count_")
+
+# Print the summary as a table
+kable(occupation_gender_summary, format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+#################################
+
+# ## Gender vs. Quality of Sleep Graph:
+ggplot(my_data, aes(x = Gender, y = Quality.of.Sleep, fill = Gender)) +
+  geom_boxplot() +
+  labs(title = "Gender vs. Quality of Sleep", x = "Gender", y = "Quality of Sleep", fill = "Gender") +
+  scale_fill_manual(values = c("#FF6F61", "#6B5B95")) +  # Adjust fill colors as needed
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "red", size = 14, face = "bold.italic"),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(color = "orange", size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border  = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+## Note:
+## Females enjoyed more quality of sleep than males.
+
+
+#################################
+
+################################
+
+## Gender vs. Stress Level Graph:
+ggplot(my_data, aes(x = Gender, y = Stress.Level, fill = Gender)) +
+  geom_boxplot() +
+  labs(title = "Gender vs. Stress Level", x = "Gender", y = "Stress Level") +
+  scale_fill_manual(values = c("#FF6F61", "#6B5B95")) +  # Adjust fill colors as needed
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "red", size = 14, face = "bold.italic"),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(color = "orange", size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border  = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+## Note:
+## Females enjoyed less stress level than males.
+
+## Is occupation vs stress level a good idea? if so, which chart should I use and
+## how?
+
+
+#####################################
+
+#####################################
+
+## Gender vs. Heart Rate Graph:
+ggplot(my_data, aes(x = Gender, y = Heart.Rate, fill = Gender)) +
+  geom_boxplot(position = "dodge") +
+  labs(title = "Gender vs. Heart Rate", x = "Gender", y = "Heart Rate") +
+  scale_fill_manual(values = c("#FF6F61", "#6B5B95"), name = "Gender") +  # Adjust fill colors as needed
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "red", size = 14, face = "bold.italic"),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(color = "orange", size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border  = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+## Note:
+## Females have less heart rate than males.It supports gender vs sleep disorder 
+## chart.
+
+#######################################
+
+###########################################
+
+#####################################
+
+## BMI Category vs. Sleep Disorder Graph:
+# Reorder BMI.Category levels
+my_data$BMI.Category <- factor(my_data$BMI.Category, levels = c("Normal", "Overweight", "Obese"))
+
+ggplot(my_data, aes(x = BMI.Category, fill = BMI.Category)) +
+  geom_bar() +
+  labs(y = "Count",
+       title = "BMI Category vs. Sleep Disorder",
+       x = "BMI Category",
+       fill = "BMI Category") +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 90),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 10),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1) 
+  ) +
+  geom_text(aes(label = after_stat(count)), stat = "count", position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  facet_wrap(vars(Sleep.Disorder))
+
+## Note:
+## Overweight persons have more tendency of being affected in sleep
+## disorder, while normal persons have less chance of being affected in  
+##  sleep disorder.
+
+# Group by Occupation and bmi category and then count occurrences
+occupation_bmi_summary <- my_data %>%
+  group_by(Occupation, BMI.Category) %>%
+  count() %>%
+  pivot_wider(names_from = BMI.Category, values_from = n, names_prefix = "count_")
+
+# Print the summary as a table
+kable(occupation_bmi_summary, format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+
+# Group by Occupation and sleep disorder and then count occurrences
+occupation_sleep_summary <- my_data %>%
+  group_by(Occupation, Sleep.Disorder) %>%
+  count() %>%
+  pivot_wider(names_from = Sleep.Disorder, values_from = n, names_prefix = "count_")
+
+# Print the summary as a table
+kable(occupation_sleep_summary, format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+#######################################
+
+#####################################
+
+## Physical Activity Level vs. Sleep Disorder Graph:
+# Plotting
+ggplot(my_data, aes(x = Physical.Activity.Level, color = Sleep.Disorder, fill = Sleep.Disorder)) +
+  geom_density(alpha = 0.8, size = 1) +  # Adjust alpha for transparency
+  labs(y = "Density") +  # Change y-axis label to represent density
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "#FF5733", size = 18, face = "bold.italic", hjust = 0.5),
+    axis.text.x = element_text(size = 12, angle = 0, hjust = 1, vjust = 1, color = "#666666"),
+    axis.title.x = element_text(size = 14, color = "#993333", face = "bold"),
+    axis.title.y = element_text(size = 14, color = "#993333", face = "bold"),
+    legend.text = element_text(size = 12, color = "#666666", face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    legend.title = element_text(size = 14, color = "#FF5733", face = "bold.italic"),
+    legend.background = element_rect(color = "black", fill = "transparent", linetype = 1, linewidth  = 0.5)
+  ) +
+  labs(title = "Physical Activity Level vs. Sleep Disorder",
+       x = "Physical Activity Level",
+       y = "Density") +
+  scale_color_manual(values = c("#FF6F61", "#6B5B95", "#70C1B3")) +  # Custom fill colors
+  scale_fill_manual(values = c("#FF6F61", "#6B5B95", "#70C1B3")) +  # Fill with same colors
+  theme(plot.background = element_rect(fill = "#f9f9f9"))  # Background color for the plot
+
+## average physical activity level:
+mean(my_data$Physical.Activity.Level)
+## Note:
+## Less physical activity leads to insomnia and more physical activity leads to sleep apnea
+##  physical activity around mean value leads to
+## normal people.
+############################
+
+## Age vs Sleep Disorder:
+# Plotting
+ggplot(my_data, aes(x = Age, color = Sleep.Disorder, fill = Sleep.Disorder)) +
+  geom_density(alpha = 0.7, size = 0.5) +  # Adjust alpha for transparency
+  labs(y = "Density") +  # Change y-axis label to represent density
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "#FF5733", size = 18, face = "bold.italic", hjust = 0.5),
+    axis.text.x = element_text(size = 12, angle = 0, hjust = 1, vjust = 1, color = "#666666"),
+    axis.title.x = element_text(size = 14, color = "#993333", face = "bold"),
+    axis.title.y = element_text(size = 14, color = "#993333", face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    legend.text = element_text(size = 12, color = "#666666", face = "bold"),
+    legend.title = element_text(size = 14, color = "#FF5733", face = "bold.italic"),
+    legend.background = element_rect(color = "black", fill = "transparent", linetype = 1, linewidth  = 0.5)
+  ) +
+  labs(title = "Age vs. Sleep Disorder",
+       x = "Age",
+       y = "Density") +
+  scale_color_manual(values = c("#FF6F61", "#6B5B95", "#70C1B3")) +  # Custom fill colors
+  scale_fill_manual(values = c("#FF6F61", "#6B5B95", "#70C1B3")) +  # Fill with same colors
+  theme(plot.background = element_rect(fill = "#f9f9f9"))  # Background color for the plot
+
+
+#######################################
+
+#####################################
+
+## Stress Level vs. Sleep Disorder Graph:
+ggplot(my_data, aes(x = Stress.Level, fill = Sleep.Disorder)) +
+  geom_density(alpha = 0.5, color = "#333333") +  # Adjust density plot transparency and border color
+  labs(y = "Density") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(color = "red", size = 18, face = "bold.italic", hjust = 0.5),
+    axis.text.x = element_text(size = 12, angle = 0, hjust = 1, vjust = 1, color = "#666666"),
+    axis.title.x = element_text(size = 14, color = "#993333", face = "bold"),
+    axis.title.y = element_text(size = 14, color = "#993333", face = "bold"),
+    legend.text = element_text(size = 12, color = "#666666", face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    legend.title = element_text(size = 14, color = "orange", face = "bold.italic"),
+    legend.background = element_rect(color = "black", fill = "transparent", linetype = 1, linewidth  = 0.5)
+  ) +
+  labs(title = "Stress Level vs. Sleep Disorder",
+       x = "Stress Level",
+       fill = "Sleep Disorder") +
+  scale_fill_manual(values = c("#FF6F61", "#6B5B95", "#70C1B3", "#FFB347", "#9A1750", "#88B04B")) +  # Custom fill colors
+  theme(plot.background = element_rect(fill = "#f9f9f9"))  # Background color for the plot
+
+## mean of stress level:
+mean(my_data$Stress.Level)
+
+## Note:
+## greater stress level leads to have tendency of sleep disorder.
+
+
+#######################################
+
+#####################################
+
+## Sleep Duration vs. Sleep Disorder Graph:
+# Plotting
+ggplot(my_data, aes(x = Sleep.Duration, fill = Sleep.Disorder)) +
+  geom_density(alpha = 0.5, position = "identity") +  # Overlapping density plots
+  labs(y = "Density") +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 0),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+  ) +
+  labs(title = "Sleep Duration vs. Sleep Disorder",
+       x = "Sleep Duration",
+       fill = "Sleep Disorder") +
+  scale_fill_manual(values = c("#FF6F61", "#6B5B95", "#70C1B3"))  # Custom fill colors
+
+# mean of sleep duration:
+mean(my_data$Sleep.Duration)
+
+## Note:
+## less sleep duration leads to sleep disorder.
+
+
+#######################################
+
+#####################################
+
+## Quality of Sleep vs. Sleep Disorder Graph:
+# Plotting
+ggplot(my_data, aes(x = Quality.of.Sleep, fill = Sleep.Disorder)) +
+  geom_bar(position = "dodge") +  # Create dodged bar plot
+  geom_text(stat = "count", aes(label = ..count.., group = Sleep.Disorder), position = position_dodge(width = 0.9), vjust = -0.5, size = 3, color = "black") +  # Add count labels with dodge position
+  labs(y = "Count") +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 0),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  ) +
+  labs(title = "Quality of Sleep vs. Sleep Disorder",
+       x = "Quality of Sleep",
+       fill = "Sleep Disorder")
+# mean of quality of sleep:
+mean(my_data$Quality.of.Sleep)
+
+## Note:
+## Quality of sleep labelled 8 is more likely not to be affected with sleep 
+## disorder.
+
+
+#######################################
+
+## Daily Steps vs. Sleep Disorder Graph:
+# Plotting
+ggplot(my_data, aes(x = Daily.Steps, fill = Sleep.Disorder)) +
+  geom_density(alpha = 0.5) +  # Adjust alpha for transparency
+  labs(y = "Density") +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 0),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+  ) +
+  labs(title = "Daily Steps vs. Sleep Disorder",
+       x = "Daily Steps",
+       fill = "Sleep Disorder") +
+  scale_fill_manual(values = c("#FF6F61", "#6B5B95", "#70C1B3"))  # Custom fill colors
+
+# mean of daily steps:
+mean(my_data$Daily.Steps)
+
+# Persons having 7000 daily steps,are normal in nature.
+
+
+# mean of heart rate:
+mean(my_data$Heart.Rate)
+
+## Note:
+## Heart rate near about 70 is more likely not to be affected with sleep 
+## disorder.
+
+
+###########################################
+
+###########################################
+
+## Physical activity level and sleep duration:
+# Plotting
+ggplot(my_data, aes(x = Physical.Activity.Level, y = Sleep.Duration, color = Sleep.Disorder)) +
+  geom_point(size=2) +
+  geom_smooth(method = "lm", se = FALSE) +  # Add a linear trendline
+  labs(
+    x = "Physical Activity Level",
+    y = "Sleep Duration",
+    color = "Sleep Disorder"
+  ) +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 0),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+  ) + 
+  labs(title = "Physical Activity Level vs. Sleep Duration")
+
+
+###########################################
+
+###########################################
+
+## occupation vs. Age:
+# Plotting
+ggplot(my_data, aes(x = Occupation, y = Age, fill = Occupation)) +
+  geom_boxplot() +
+  labs(
+    x = "Occupation",
+    y = "Age",
+    fill = "Occupation"
+  ) +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+    ) + 
+  labs(title = "Occupation vs. Age")
+
+
+
+###########################################
+
+###########################################
+
+## occupation vs. sleep duration:
+# Plotting
+ggplot(my_data, aes(x = Occupation, y = Sleep.Duration, fill = Occupation)) +
+  geom_boxplot() +
+  labs(
+    x = "Occupation",
+    y = "Sleep Duration",
+    fill = "Occupation"
+  ) +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+    ) + 
+  labs(title = "Occupation vs. Sleep Duration")
+
+
+###########################################
+
+###########################################
+
+## occupation vs. sleep disorder count:
+# Calculate sleep disorder counts by occupation
+occupation_sleep_disorder_counts <- table(my_data$Occupation, my_data$Sleep.Disorder)
+print(occupation_sleep_disorder_counts)
+#_______contribution____________
+## Insomnia: Salesperson ,Teacher
+## None: Accountant,Doctor ,Engineer,  Lawyer
+## Sleep Apnea: Nurse
+
+###########################################
+
+###########################################
+
+## occupation vs. physical activity level:
+ggplot(my_data, aes(x = Occupation, y = Physical.Activity.Level, fill = Occupation)) +
+  geom_boxplot() +
+  labs(
+    x = "Occupation",
+    y = "Physical Activity Level",
+    fill = "Occupation"
+  ) +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+  ) +
+  labs(title = "Occupation vs. Physical Activity Level")
+
+## mean physical activity level:
+mean(my_data$Physical.Activity.Level)
+
+
+# Calculate physical activity level counts by occupation
+occupation_phy_act_counts <- table(my_data$Occupation, my_data$Physical.Activity.Level>mean(my_data$Physical.Activity.Level)
+)
+occupation_phy_act_counts
+
+#_______________#Safe guard for accountant______
+# Specify the occupation for which you want to show the count of sleep disorders
+specific_occupation <- "Accountant"
+# Filter data for the specific occupation
+filtered_data <- my_data %>%
+  filter(Occupation == specific_occupation)
+
+# Calculate the count of sleep disorders for the specific occupation
+disorder_count <- filtered_data %>%
+  count(Physical.Activity.Level)
+
+# Print the count of sleep disorders for the specific occupation
+print(disorder_count)
+
+
+#_______________#Safe guard for lawyer________
+# Specify the occupation for which you want to show the count of sleep disorders
+specific_occupation_1 <- "Lawyer"
+# Filter data for the specific occupation
+filtered_data_1 <- my_data %>%
+  filter(Occupation == specific_occupation_1)
+
+# Calculate the count of sleep disorders for the specific occupation
+disorder_count_1 <- filtered_data_1 %>%
+  count(Physical.Activity.Level)
+
+# Print the count of sleep disorders for the specific occupation
+print(disorder_count_1)
+
+###########################################
+
+## occupation vs. stress level:
+ggplot(my_data, aes(x = Occupation, y = Stress.Level, fill = Occupation)) +
+  geom_boxplot() +
+  labs(
+    x = "Occupation",
+    y = "Stress Level",
+    fill = "Occupation"
+  ) +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    panel.border = element_rect(color = "black",fill = NA,linewidth = 0.5),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+  ) +
+  labs(title = "Occupation vs. Stress Level")
+
+
+
+## mean physical activity level:
+mean(my_data$Stress.Level)
+
+#_______________#Safe guard for doctor________
+# Specify the occupation for which you want to show the count of sleep disorders
+specific_occupation_2 <- "Doctor"
+# Filter data for the specific occupation
+filtered_data_2 <- my_data %>%
+  filter(Occupation == specific_occupation_2)
+
+# Calculate the count of sleep disorders for the specific occupation
+disorder_count_2 <- filtered_data_2 %>%
+  count(Stress.Level)
+
+# Print the count of sleep disorders for the specific occupation
+print(disorder_count_2)
+
+
+#_______________#Safe guard for engineer________
+# Specify the occupation for which you want to show the count of sleep disorders
+specific_occupation_3 <- "Engineer"
+# Filter data for the specific occupation
+filtered_data_3 <- my_data %>%
+  filter(Occupation == specific_occupation_3)
+
+# Calculate the count of sleep disorders for the specific occupation
+disorder_count_3 <- filtered_data_3 %>%
+  count(Stress.Level)
+
+# Print the count of sleep disorders for the specific occupation
+print(disorder_count_3)
+
+#_______________#Safe guard for nurse________
+# Specify the occupation for which you want to show the count of sleep disorders
+specific_occupation_4<- "Nurse"
+# Filter data for the specific occupation
+filtered_data_4 <- my_data %>%
+  filter(Occupation == specific_occupation_4)
+
+# Calculate the count of sleep disorders for the specific occupation
+disorder_count_4 <- filtered_data_4 %>%
+  count(Stress.Level)
+
+# Print the count of sleep disorders for the specific occupation
+print(disorder_count_4)
+
+
+###########################################
+
+###########################################
+
+## occupation vs. Daily Steps:
+ggplot(my_data, aes(x = Occupation, y = Daily.Steps, fill = Occupation)) +
+  geom_boxplot() +
+  labs(
+    x = "Occupation",
+    y = "Daily Steps",
+    fill = "Occupation"
+  ) +
+  theme(
+    plot.title = element_text(color = alpha("red", 0.8), size = 14, face = "bold.italic"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title.x = element_text(color = "#993333", size = 14, face = "bold"),
+    axis.title.y = element_text(color = "#993333", size = 14, face = "bold"),
+    legend.text = element_text(color = "black", size = 14, face = "bold"),
+    panel.border = element_rect(color = "black",fill = NA,linewidth = 0.5),
+    legend.title = element_text(color = alpha("#993302", 0.8), size = 14, face = "bold.italic"),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+  ) +
+  labs(title = "Occupation vs. Daily Steps")
+
+mean(my_data$Daily.Steps)
+
+
+
+
+###########################################
+
+###########################################
+
+#__________Occupation wise maximum count disorder___________
+
+# Calculate the count of each occupation over sleep disorder
+occupation_sleep_disorder_counts <- my_data %>%
+  group_by(Occupation, Sleep.Disorder) %>%
+  summarise(count = n()) %>%
+  spread(key = Sleep.Disorder, value = count, fill = 0)
+
+# Find the sleep disorder with the maximum count for each occupation
+max_disorder <- occupation_sleep_disorder_counts %>%
+  select(-Occupation) %>%
+  apply(1, function(x) names(x)[which.max(x)])
+
+# Add the sleep disorder with the maximum count as a new column
+occupation_sleep_disorder_counts$max_count_disorder <- max_disorder
+
+# Print the resulting summary table
+kable(occupation_sleep_disorder_counts, format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+
+
+###########################################
+
+###########################################
+
+## Heart rate vs. Bmi Category:
+
+# Reorder BMI.Category as factor
+my_data$BMI.Category <- factor(my_data$BMI.Category, levels = c("Normal", "Overweight", "Obese"))
+
+
+ggplot(my_data, aes(x = BMI.Category, y = Heart.Rate, fill = BMI.Category)) +
+  geom_boxplot(color = "black") +  # Box plot
+  labs(title = "Heart Rate vs. BMI Category",
+       x = "BMI Category",
+       y = "Heart Rate") +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+  )
+
+###########################################
+
+###########################################
+
+## Heart rate vs. Sleep Disorder:
+
+# Plotting box plot 
+ggplot(my_data, aes(x = Sleep.Disorder, y = Heart.Rate,fill = Sleep.Disorder)) +
+  geom_boxplot( color = "black") +  # Box plot
+  labs(title = "Heart Rate vs. Sleep Disorder",
+       x = "Sleep Disorder",
+       y = "Heart Rate") +
+  theme_minimal()+
+  theme(
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+
+
+
+###########################################
+
+###########################################
+## Stress Level vs. Sleep Disorder:
+
+# Plotting box plot 
+ggplot(my_data, aes(x = Sleep.Disorder, y = Stress.Level,fill = Sleep.Disorder)) +
+  geom_boxplot( color = "black") +  # Box plot
+  labs(title = "Stress Level vs. Sleep Disorder",
+       x = "Sleep Disorder",
+       y = "Stress Level") +
+  theme_minimal()+
+  theme(
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5)
+  )
+
+mean(my_data$Stress.Level)
+
+###########################################
+```
+
+
+```{r}
+#################################
+
+# Visualizing correlations:
+
+M<-cor(my_data[c(3,5,6,7,8,12,11)])
+
+
+kable(data.matrix(M), format = "html", align = "c") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+
+
+library(tidyr)
+library(knitr)
+library(kableExtra)
+
+# Convert correlation matrix to long format
+cor_long <- data.frame(M) %>%
+  rownames_to_column(var = "Factor1") %>%
+  gather(key = "Factor2", value = "Correlation", -Factor1)
+
+# Filter values greater than 0.5
+filtered_cor <- cor_long %>%
+  filter(abs(Correlation) > 0.5) %>%
+  filter(Factor1 != Factor2)  # Filter out rows where Factor1 and Factor2 are the same
+
+# Remove duplicate rows
+distinct_filtered_cor <- filtered_cor %>%
+  distinct(Correlation, .keep_all = TRUE)
+
+# Add column to indicate relationship
+distinct_filtered_cor <- distinct_filtered_cor %>%
+  mutate(
+    Relation = ifelse(Correlation > 0, "↑", "↓")
+  )
+
+# Rename the 'Relation' column to 'Relation'
+colnames(distinct_filtered_cor)[which(names(distinct_filtered_cor) == "Relation")] <- "Relation"
+
+# Display in organized table with coloring
+styled_cor_table <- distinct_filtered_cor %>%
+  kable("html") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = "bordered", position = "center") 
+
+# Add table title
+styled_cor_table_with_title <- htmlTable(
+  styled_cor_table,
+  header = "<b>Correlation Table</b>",
+  tfoot = "</b> '↑' indicates a positive relationship, and '↓' indicates a negative relationship.</p>"
+)
+
+print(styled_cor_table_with_title)
+
+
+
+# Customize corrplot appearance
+corrplot(
+  M,
+  
+  addgrid.col = TRUE,
+  method = "color", type = "lower", order = "hclust", tl.col = "black", addCoef.col = "black",
+  # Text color
+  tl.srt =25,         # Text rotation
+  diag = FALSE,       # Exclude diagonal elements
+  title = list("Correlation Among Variables", cex = 2.5, col = "purple4"),
+  mar = c(0, 0, 2, 0) )
+
+## Note: ##
+## Quality of sleep and sleep duration had very strong correlation of 0.88.
+## Stress level has a strong negative correlation of 0.9 with quality of sleep.
+## Stress level has a strong negative correlation of 0.81 with sleep duration.
+## Daily steps and physical activity level have strong correlation of 0.77.
+## Heart rate and stress level have strong correlation of 0.67.
+## Heart rate and quality of sleep have strong negative correlation of 0.66.
+## Systolic and diastolic have strong negative correlation of 0.97.
+## Systolic and age have strong negative correlation of 0.62.
+## Age and diastolic have strong negative correlation of 0.61.
+
+#################################
+
+
+###########################################
+
+## Stress level vs. Sleep Duration:
+
+# Plotting scatter plot for stress level and sleep duration
+ggplot(my_data, aes(x = Stress.Level, y = Sleep.Duration, color = Sleep.Disorder, fill = Sleep.Disorder)) +
+  geom_point() +  # Scatter plot
+  geom_smooth(method = "lm", se = FALSE) +  # Add trendline using linear regression
+  labs(title = "Stress Level vs. Sleep Duration",
+       x = "Stress Level",
+       y = "Sleep Duration",
+       color = "Sleep Disorder",
+       fill = "Sleep Disorder") +
+  theme_minimal()+theme(
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border  = element_rect(color = "black", fill = NA, linewidth = 0.5)
+  )
+
+
+###########################################
+
+###########################################
+
+# Plotting scatter plot for daily steps and physical activity level
+
+ggplot(my_data, aes(x = Daily.Steps, y = Physical.Activity.Level, color = Sleep.Disorder, fill = Sleep.Disorder)) +
+  geom_point() +  # Scatter plot
+  geom_smooth(method = "lm", se = FALSE) +  # Add trendline using linear regression
+  labs(title = "Daily Steps vs. Physical Activity Level",
+       x = "Daily Steps",
+       y = "Physical Activity Level",
+       color = "Sleep Disorder",
+       fill = "Sleep Disorder") +
+  theme_minimal()+
+  theme(
+    legend.background = element_rect(color = "black", linetype = 1, linewidth = 0.5),
+    panel.border  = element_rect(color = "black", fill = NA, linewidth = 0.5)
+    
+  )
+```
+
+```{r}
+#my_data <- read.csv(file.choose())
+data <- my_data
+data <- data %>%
+  mutate(Occupation = ifelse(Occupation == "Sales Representative", "Salesperson", Occupation),
+         BMI.Category = ifelse(BMI.Category == "Normal Weight", "Normal", BMI.Category),
+         Sleep.Disorder = ifelse(Sleep.Disorder %in% c("Sleep Apnea", "Insomnia"), "Sleep Disorder", Sleep.Disorder))
+
+# Reduced occupation
+# Count the occurrences of each occupation
+occupation_counts <- table(data$Occupation)
+
+# Specify the number of top occupations to keep
+top_n_occupations <- 7
+
+# Identify the top occupations
+top_occupations <- names(sort(occupation_counts, decreasing = TRUE))[1:top_n_occupations]
+
+# Filter the data to keep only the rows with the top occupations
+data <- data %>%
+  filter(Occupation %in% top_occupations)
+```
+
+```{r}
+# Assuming you have already loaded the necessary libraries
+library(dplyr)
+
+# Define the categorize_blood_pressure function
+categorize_blood_pressure <- function(bp_string) {
+  bp_values <- strsplit(bp_string, "/")[[1]]
+  systolic <- as.integer(bp_values[1])
+  diastolic <- as.integer(bp_values[2])
+  
+  if (systolic < 120 && diastolic < 80) {
+    return(0)  # Normal Blood Pressure
+  } else if (120 <= systolic && systolic <= 129 && diastolic < 80) {
+    return(1)  # Elevated Blood Pressure
+  } else if ((130 <= systolic && systolic <= 139) || (80 <= diastolic && diastolic <= 89)) {
+    return(2)  # Stage 1 Hypertension
+  } else if (systolic >= 140 || diastolic >= 90) {
+    return(3)  # Stage 2 Hypertension
+  } else {
+    return(4)  # Undefined
+  }
+}
+
+data <- data %>%
+  mutate(s0 = strsplit(Blood.Pressure, "/")) %>%
+  rowwise() %>%
+  mutate(Systolic = as.numeric(s0[[1]][1]),
+         Diastolic = as.numeric(s0[[1]][2]))%>%
+  mutate(Systolic = as.numeric(strsplit(Blood.Pressure, "/")[[1]][1]),
+         Diastolic = as.numeric(strsplit(Blood.Pressure, "/")[[1]][2])) %>%
+  mutate(Bp.Category = sapply(Blood.Pressure, categorize_blood_pressure)) %>% 
+  mutate(Bp.Category = factor(Bp.Category, 
+                              levels = c(0, 1, 2, 3, 4),
+  ))
+
+# View the data
+View(data)
+reduced_col <- c(10,14)
+data <- data[,-reduced_col]
+
+```
+
+
+```{r}
+# Convert Sleep.Disorder to binary (0 and 1)
+data$Sleep.Disorder <- ifelse(data$Sleep.Disorder == "None", 0, 1)
+
+# Convert Gender to binary (0 and 1)
+data$Gender <- ifelse(data$Gender == "Male", 0, 1)
+
+# Convert Occupation to numeric
+occupation_mapping <- c("Doctor" = 0, "Engineer" = 1,"Accountant" = 2, "Lawyer" = 3, "Salesperson" = 4, "Teacher" = 5,"Nurse" = 6 )
+
+data$Occupation <- match(data$Occupation, names(occupation_mapping)) - 1
+
+# Replace BMI category values with numeric values
+bmi_mapping <- c("Normal" = 0, "Overweight" = 1, "Obese" = 2)
+data$BMI.Category <- match(data$BMI.Category, names(bmi_mapping)) - 1
+```
+
+```{r}
+##_______________________________________________________________________
+set.seed(123)  # for reproducibility
+library(caret)
+train_index_model <- createDataPartition(data$Sleep.Disorder, p = 0.8, list = FALSE)
+train_data_model <- data[train_index_model, ]
+test_data_model <- data[-train_index_model, ]
+train_data_model <- train_data_model[,-1]
+##_______________________________________________________________________
+# model building with all the variables: Base model:
+model <- glm(Sleep.Disorder ~ . , data = train_data_model, 
+             family = "binomial")
+
+# Summary of the model
+summary(model)
+```
+
+
+```{r}
+#################################
+# Gender:
+table(data$Gender,data$Sleep.Disorder)
+chisq.test(table(data$Gender,data$Sleep.Disorder))
+
+# Occupation:
+table(data$Occupation,data$Sleep.Disorder)
+chisq.test(table(data$Occupation,data$Sleep.Disorder)
+)
+
+
+# Quality of sleep:
+table(data$Quality.of.Sleep,data$Sleep.Disorder)
+chisq.test(table(data$Quality.of.Sleep,data$Sleep.Disorder)
+)
+library(DescTools)
+GoodmanKruskalGamma(data$Quality.of.Sleep,data$Sleep.Disorder)
+
+# Stress level:
+GoodmanKruskalGamma(data$Stress.Level,data$Sleep.Disorder)
+
+GoodmanKruskalGamma(data$Quality.of.Sleep,data$Stress.Level)
+
+GoodmanKruskalGamma(table(data$Bp.Category,data$Sleep.Disorder))
+```
+
+
+```{r}
+#################################
+##For  base model:
+
+# Make predictions on test data for model
+predictions_model <- predict(model, test_data_model, type = "response")
+
+# Convert predictions to binary (0, 1) based on threshold (0.5)
+predicted_classes_model<- ifelse(predictions_model > 0.5, 1,  0)
+
+
+table(Actual_Value = test_data_model$Sleep.Disorder, Predicted_Value = predicted_classes_model)
+
+accuracy<-(41+30)/(41+2+30)
+accuracy
+```
+
+
+```{r}
+#___________________________________
+
+# Select a random row from the original dataset
+set.seed(25) # for reproducibility
+random_row <- data[sample(nrow(data), 1), ]
+
+# Extract actual sleep disorder state of the patient
+actual_diagnosis <- ifelse(random_row$Sleep.Disorder == 1, "Sleep Disorder", "Normal")
+
+# Prepare new data frame for prediction
+newdata <- data.frame(
+  Person.ID = random_row$Person.ID,
+  Gender = random_row$Gender,
+  Age = random_row$Age,
+  Occupation = random_row$Occupation,
+  Sleep.Duration = random_row$Sleep.Duration,
+  Quality.of.Sleep = random_row$Quality.of.Sleep,
+  Physical.Activity.Level = random_row$Physical.Activity.Level,
+  Stress.Level = random_row$Stress.Level,
+  BMI.Category = random_row$BMI.Category,
+  Heart.Rate = random_row$Heart.Rate,
+  Daily.Steps = random_row$Daily.Steps,
+  Systolic = random_row$Systolic,
+  Diastolic = random_row$Diastolic,
+  Bp.Category = random_row$Bp.Category
+)
+
+# Generate probability
+probability <- predict(model, newdata, type = "response")
+
+# Classify predictions
+diagnosis <- ifelse(probability >= 0.5, "Sleep Disorder", "Normal")
+
+# Create new dataframe for predictions
+pred <- data.frame(probability, diagnosis,actual_diagnosis)
+
+# Display results using kable
+library(knitr)
+library(kableExtra)
+
+print(kable(pred[, c("probability", "diagnosis","actual_diagnosis")], 
+            caption = "Diagnosis based on Predicted Probabilities", 
+            col.names = c("Predicted Probability", "Diagnosis","Actual Case")), 
+      type = "text")
+
+#-----
+```
+
+
+```{r}
+###############################
+# Model Tuning:
+###############################
+
+
+# now select the necessary variables using stepaic method:
+
+# library needed:
+library(MASS)
+model_step<-stepAIC(model,direction = "backward",trace = F)
+summary(model_step)
+vif(model_step)
+
+# multicolinearity check:
+library(car)
+
+# another improvement:
+model_final<-glm(Sleep.Disorder ~ Occupation +  Physical.Activity.Level  +
+              Stress.Level + BMI.Category ,
+            data = train_data_model,family = "binomial")
+summary(model_final)
+
+# multicolinearity check:
+vif(model_final)
+
+
+
+
+# test for selecting best model among these 4 according to chi square test:
+anova(model,model_step,model_final,test = "Chisq")
+```
+
+
+```{r}
+#################################
+##For model_final:
+
+
+# Make predictions on test data for model
+predictions_model_final <- predict(model_final, test_data_model, type = "response")
+
+# Convert predictions to binary (0, 1) based on threshold (0.5)
+predicted_classes_model_final <- ifelse(predictions_model_final > 0.5, 1,  0)
+
+
+table(Actual_Value = test_data_model$Sleep.Disorder, Predicted_Value = predicted_classes_model_final)
+
+accuracy<-(40+28)/nrow(test_data_model)
+accuracy
+
+# Create a table with specified column names
+confusion_table <- table(Actual = test_data_model$Sleep.Disorder, Predicted = predicted_classes_model_final)
+
+# Add row and column names for logistic regression
+rownames(confusion_table) <- c("Actual: 0", "Actual: 1")
+colnames(confusion_table) <- c("Predicted: 0", "Predicted: 1")
+
+# Display the confusion matrix with kable
+kable(confusion_table, format = "markdown", caption = "Confusion Matrix For Final Model")
+```
+
+
+```{r}
+####################
+# Randomly select 10 rows from the test data 
+
+random_rows <- test_data_model[sample(nrow(test_data_model), 10), ]
+selected_rows <- random_rows[, c("Occupation", "Physical.Activity.Level", "Stress.Level", "BMI.Category")]
+
+# selected row is my concern:
+# Predict probabilities for each class 
+predicted_probabilities_sample <- predict(model_final, selected_rows, type = "response")
+
+# Add the predicted probabilities as a new column 
+selected_rows$Predicted_Probability <- predicted_probabilities_sample
+
+# Calculate predicted classes based on threshold (0.5) for logistic regression
+selected_rows$Predicted_Class <- ifelse(predicted_probabilities_sample > 0.5, 1, 0)
+
+# Combine predictions and predicted_classes into a dataframe 
+df_sample <- data.frame(Predictions = selected_rows$Predicted_Probability, Predicted_Classes = selected_rows$Predicted_Class)
+
+
+# Print the df_lr in a table format
+
+kable(df_sample, format = "markdown",caption = "Predictions vs. Predicted classes  for sample ")
+
+# Generate confusion matrix for logistic regression
+conf_matrix_sample <- table(random_rows$Sleep.Disorder, selected_rows$Predicted_Class)  
+
+
+# Convert the confusion matrix to a data frame for logistic regression
+conf_matrix_df_sample <- as.data.frame.matrix(conf_matrix_sample)
+
+# Add row and column names for logistic regression
+rownames(conf_matrix_df_sample) <- c("Actual: 0", "Actual: 1")
+colnames(conf_matrix_df_sample) <- c("Predicted: 0", "Predicted: 1")
+
+# Print the confusion matrix in a table format for logistic regression
+
+kable(conf_matrix_df_sample, format = "markdown",caption = "Confusion Matrix for randomly selected 10 rows")
+```
+
+```{r}
+##############################
+##HTML Form
+##############################
+
+
+# Load necessary libraries
+library(shiny)
+
+# Occupation mapping function
+mapOccupation <- function(occupation) {
+  occupation_map <- c("Doctor" = 0, "Engineer" = 1, "Accountant" = 2, "Lawyer" = 3, "Salesperson" = 4, "Teacher" = 5,"Nurse" = 6
+                       )
+  return(occupation_map[occupation])
+}
+
+# BMI Category mapping function
+mapBMICategory <- function(category) {
+  bmi_map <- c("Normal" = 0, "Overweight" = 1, "Obese" = 2)
+  return(bmi_map[category])
+}
+
+# Define UI
+ui <- fluidPage(
+  
+  titlePanel("Sleep Disorder Diagnosis"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("Occupation", "Occupation:", 
+                  choices = c("<select>", "Doctor", "Engineer", "Nurse", "Teacher", 
+                              "Salesperson", "Accountant", "Lawyer"), selected = NULL),
+      numericInput("PhysicalActivity", "Physical Activity Level (in minutes/day):", value = NULL),
+      helpText("Rate your Stress Level on a 10-point scale:"),
+      numericInput("StressLevel", "Stress Level:", value = NA),
+      selectInput("BMICategory", "BMI Category:", 
+                  choices = c("<select>", "Normal", "Overweight", "Obese"), selected = NULL),
+      actionButton("submit", "Submit")
+    ),
+    
+    mainPanel(
+      tableOutput("predictionTable")
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output, session) {
+  
+  # Initialize reactive values to store input and results
+  values <- reactiveValues(
+    Occupation = NULL,
+    PhysicalActivity = NULL,
+    StressLevel = NULL,
+    BMICategory = NULL,
+    probability = NULL,
+    diagnosis = NULL
+  )
+  
+  observeEvent(input$submit, {
+    
+    # Check for empty or NULL inputs
+    if (input$Occupation == "<select>") {
+      values$Occupation <- NULL
+    } else {
+      values$Occupation <- mapOccupation(input$Occupation)
+    }
+    
+    if (input$BMICategory == "<select>") {
+      values$BMICategory <- NULL
+    } else {
+      values$BMICategory <- mapBMICategory(input$BMICategory)
+    }
+    
+    # Update reactive values with input
+    values$PhysicalActivity <- input$PhysicalActivity
+    values$StressLevel <- input$StressLevel
+    
+    # Create new data frame
+    newdata <- data.frame(
+      Occupation = values$Occupation,
+      Physical.Activity.Level = values$PhysicalActivity,
+      Stress.Level = values$StressLevel,
+      BMI.Category = values$BMICategory
+    )
+    
+    # Generate probability
+    values$probability <- predict(model_final, newdata, type = "response")
+    
+    # Classify predictions
+    values$diagnosis <- ifelse(values$probability >= 0.5, "Sleep Disorder", "Normal")
+    
+    # Display prediction details in table format
+    output$predictionTable <- renderTable({
+      data.frame(
+        "Predicted Probability" = values$probability,
+        "Diagnosis" = values$diagnosis
+      )
+    })
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+```
+
